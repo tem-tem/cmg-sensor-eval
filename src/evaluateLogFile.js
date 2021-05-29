@@ -1,60 +1,86 @@
+const DEFAULT_DEVICE_REF_SEQUENCE = ['thermometer', 'humidity', 'monoxide'];
+
+// options structure: {
+//   additionalReferences -- array with additional device types
+//   [deviceType].evaluationFunction -- fn that accepts array of values found in logs, and a ref value
+// }
 export default function evaluateLogFile(logContentsStr, options) {
   let lines = logContentsStr.split('\n');
-  const references = { thermometer: null, humidity: null, monoxide: null };
   const currentDevice = { type: null, name: null, values: [] };
-  const deviceEval = {};
+  const refParams = buildReferenceParams(options);
+  const evaluationOutput = {};
 
-  // debugger;
-  const checkAndEval = (device, refs) => {
-    if (device.type) {
-      return evalDevice(device, refs);
-    }
-  }
-  const resetCurrentDevice = (device, words) => {
-    device.type = words[0];
-    device.name = words[1];
-    device.values = [];
-  }
   lines.forEach(function (line) {
     const words = line.split(" ");
     switch (words[0]) {
       case "reference":
-        references.thermometer = Number(words[1]);
-        references.humidity = Number(words[2]);
-        references.monoxide = Number(words[3]);
-        break;
-
-      case "monoxide":
-      case "humidity":
-      case "thermometer":
-        deviceEval[currentDevice.name] = checkAndEval(currentDevice, references)
-        resetCurrentDevice(currentDevice, words)
+        refParams.referenceSequence.forEach((device, i) => {
+          refParams.referenceByDevice[device].value = Number(words[i+1]);
+        })
         break;
 
       default:
-        // TODO: this is a weak point -- could be a date+value or any other shit
         if (!isNaN(Date.parse(words[0]))) {
           currentDevice.values.push(Number(words[1]));
+          break;
         }
+
+        if (currentDevice.type) {
+          evaluationOutput[currentDevice.name] = calcDeviceEvaluation(currentDevice, refParams);
+        }
+        setCurrentDevice(currentDevice, words);
+        break;
+
     }
   });
-  deviceEval[currentDevice.name] = evalDevice(
-    currentDevice,
-    references
-  );
-  return deviceEval;
+  evaluationOutput[currentDevice.name] = calcDeviceEvaluation(currentDevice, refParams);
+  return evaluationOutput;
 }
 
-const evalDevice = (device, references) => {
-  switch (device.type) {
-    case "monoxide":
-      return monoxide(device.values, references.monoxide);
-    case "humidity":
-      return humidity(device.values, references.humidity);
-    case "thermometer":
-      return thermometer(device.values, references.thermometer);
+const setCurrentDevice = (device, words) => {
+  device.type = words[0];
+  device.name = words[1];
+  device.values = [];
+}
+
+const calcDeviceEvaluation = (device, refParams) => {
+  if (device.type) {
+    if (refParams.referenceByDevice[device.type] && refParams.referenceByDevice[device.type].evaluationFunction) {
+      const deviceEvaluationFn = refParams.referenceByDevice[device.type].evaluationFunction;
+      const deviceReferenceValue = refParams.referenceByDevice[device.type].value;
+      return deviceEvaluationFn(device.values, deviceReferenceValue);
+    } else {
+      return `${device.type} reference params not found; evaluation skipped`;
+    }
   }
-};
+}
+
+const buildReferenceParams = (options) => {
+  const referenceByDevice = {};
+  const referenceSequence = DEFAULT_DEVICE_REF_SEQUENCE;
+  if (options && options.additionalReferences) referenceSequence.push(...options.additionalReferences);
+  referenceSequence.forEach(deviceType => {
+    referenceByDevice[deviceType] = {};
+    referenceByDevice[deviceType].value = null;
+    switch (deviceType) {
+      case "monoxide":
+        referenceByDevice[deviceType].evaluationFunction = monoxide;
+        break;
+      case "humidity":
+        referenceByDevice[deviceType].evaluationFunction = humidity;
+        break;
+      case "thermometer":
+        referenceByDevice[deviceType].evaluationFunction = thermometer;
+        break;
+      default:
+        break;
+    }
+    if (options && options[deviceType] && options[deviceType].evaluationFunction) {
+      referenceByDevice[deviceType].evaluationFunction = options[deviceType].evaluationFunction
+    };
+  })
+  return {referenceSequence, referenceByDevice}
+}
 
 const thermometer = (valuesArray, ref) => {
   const mean =

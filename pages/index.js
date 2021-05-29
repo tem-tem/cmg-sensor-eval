@@ -4,8 +4,10 @@ import { useState } from 'react';
 import evaluateLogFile from '../src/evaluateLogFile';
 
 export default function Home() {
-  const [output, setOutput] = useState('results will replace this text')
+  const [output, setOutput] = useState('results will replace this text');
+  const [options, setOptions] = useState(false);
 
+  const handleCheckbox = () => setOptions(!options);
   const handleFileChange = (event) => {
     const fileList = event.target.files;
     const reader = new FileReader();
@@ -13,33 +15,45 @@ export default function Home() {
       // The file's text will be printed here
       // console.log(e.target.result);
       const fileText = e.target.result;
-      const res = evaluateLogFile(fileText);
-      setOutput(JSON.stringify(res));
+      let res;
+      if (options) {
+        res = evaluateLogFile(fileText, {
+          additionalReferences: ['noise'],
+          noise: {
+            evaluationFunction: (values, ref) => {
+              let evalRes = "keep";
+              values.forEach((val) => {
+                const difference = Math.abs(ref - val);
+                if (difference > 10) evalRes = "discard";
+              });
+              return evalRes;
+            }
+          }
+        });
+      } else {
+        res = evaluateLogFile(fileText);
+      }
+
+      setOutput(`${options ? '' : 'NOT '}using options: ${JSON.stringify(res)}`);
     };
 
-    reader.readAsText(fileList[0]);
+    if (fileList[0]) reader.readAsText(fileList[0]);
   }
   return (
-    <div className={styles.container}>
+    <div >
       <Head>
         <title>Create Next App</title>
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main className={styles.main}>
-        <h1 className={styles.title}>
-        </h1>
-
-        <p className={styles.description}>
-        </p>
-
-        <div className={styles.grid}>
+        <div style={{padding: 20}}>
           <input type="file" id="file-selector" onChange={handleFileChange}/>
-          <pre>{output}</pre>
+          <input type="checkbox" onChange={handleCheckbox} id="options"/>
+          <label htmlFor="options">Use options param</label>
         </div>
-      </main>
 
       <footer className={styles.footer}>
+          <pre style={{wordWrap: 'break-word', whiteSpace: 'pre-wrap', width: "100vw"}}>{output}</pre>
       </footer>
     </div>
   )
